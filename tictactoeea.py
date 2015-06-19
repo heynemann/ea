@@ -4,6 +4,9 @@ import math
 from deap import base, tools
 
 
+SMART_ALGO = False
+
+
 def drawBoard(board):
     # This function prints out the board that it was passed.
 
@@ -131,23 +134,29 @@ def getComputerMove(board):  # NOQA
             if isWinner(copy, playerLetter):
                 return i
 
-    for i in range(0, 4):
-        # Try to take one of the corners, if they are free.
-        move = [0, 2, 6, 8][i]
+    if SMART_ALGO:
+        move = chooseRandomMoveFromList(board, [0, 2, 6, 8])
         if move is not None:
             return move
+    else:
+        for i in range(0, 4):
+            # Try to take one of the corners, if they are free.
+            move = [0, 2, 6, 8][i]
+            if move is not None:
+                return move
 
     # Try to take the center, if it is free.
     if isSpaceFree(board, 4):
         return 4
 
-    for i in range(0, 4):
-        # Try to take one of the corners, if they are free.
-        move = [1, 3, 5, 7][i]
-        if move is not None:
-            return move
-
-    return chooseRandomMoveFromList(board, [1, 3, 5, 7])
+    if SMART_ALGO:
+        return chooseRandomMoveFromList(board, [1, 3, 5, 7])
+    else:
+        for i in range(0, 4):
+            # Try to take one of the corners, if they are free.
+            move = [1, 3, 5, 7][i]
+            if move is not None:
+                return move
 
 
 class Fitness(float):
