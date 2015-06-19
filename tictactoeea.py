@@ -1,7 +1,7 @@
 import random
 import math
 
-from deap import base, creator, tools
+from deap import base, tools
 
 
 def drawBoard(board):
@@ -11,17 +11,11 @@ def drawBoard(board):
 
     message = ""
     # "board" is a list of 10 strings representing the board (ignore index 0)
-    message += ('   |   |\n')
     message += (' ' + board[6] + ' | ' + board[7] + ' | ' + board[8] + '\n')
-    message += ('   |   |\n')
     message += ('-----------\n')
-    message += ('   |   |\n')
     message += (' ' + board[3] + ' | ' + board[4] + ' | ' + board[5] + '\n')
-    message += ('   |   |\n')
     message += ('-----------\n')
-    message += ('   |   |\n')
     message += (' ' + board[0] + ' | ' + board[1] + ' | ' + board[2] + '\n')
-    message += ('   |   |')
     return message
 
 
@@ -29,6 +23,7 @@ def get_game_board(game_choices):
     board = [None] * 9
     player = game_choices.player_starts and "O" or "X"
     iteration = 0
+    number_of_moves = 0
 
     while True:
         if iteration > len(game_choices) - 2:
@@ -40,8 +35,14 @@ def get_game_board(game_choices):
             player = "O"
         else:
             iteration += 1
-            move = min(0, max(int(math.floor(game_choices[iteration])), 9))
-            board[move] = player
+            move = max(0, min(int(math.floor(game_choices[iteration])), 8))
+            while board[move] is not None and not isBoardFull(board) and iteration <= len(game_choices) - 2:
+                move = max(0, min(int(math.floor(game_choices[iteration])), 8))
+                iteration += 1
+
+            if board[move] is None:
+                board[move] = player
+                number_of_moves += 1
             player = "X"
 
         if isWinner(board, "O") or isWinner(board, "X"):
@@ -50,7 +51,7 @@ def get_game_board(game_choices):
         if isBoardFull(board):
             break
 
-    return board, iteration
+    return board, number_of_moves
 
 
 def isBoardFull(board):
@@ -109,7 +110,7 @@ def chooseRandomMoveFromList(board, movesList):
         return None
 
 
-def getComputerMove(board):
+def getComputerMove(board):  # NOQA
     computerLetter = 'X'
     playerLetter = 'O'
 
@@ -130,16 +131,22 @@ def getComputerMove(board):
             if isWinner(copy, playerLetter):
                 return i
 
-    # Try to take one of the corners, if they are free.
-    move = chooseRandomMoveFromList(board, [0, 2, 6, 8])
-    if move is not None:
-        return move
+    for i in range(0, 4):
+        # Try to take one of the corners, if they are free.
+        move = [0, 2, 6, 8][i]
+        if move is not None:
+            return move
 
     # Try to take the center, if it is free.
     if isSpaceFree(board, 4):
-        return 5
+        return 4
 
-    # Move on one of the sides.
+    for i in range(0, 4):
+        # Try to take one of the corners, if they are free.
+        move = [1, 3, 5, 7][i]
+        if move is not None:
+            return move
+
     return chooseRandomMoveFromList(board, [1, 3, 5, 7])
 
 
@@ -165,39 +172,86 @@ class Individual(list):
 
 class GameSolver:
     IND_SIZE = 10
-    CXPB, MUTPB = 0.5, 0.2
+    CXPB, MUTPB = 0.5, 0.0
+    MUTATION_POSITIONS = 1
+    MUTATION_RANGE = 2
 
     def __init__(self):
-        self.initialize_creator()
         self.initialize_toolbox()
-
-    def initialize_creator(self):
-        creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
-        creator.create("Individual", list, fitness=creator.FitnessMin)
 
     def initialize_toolbox(self):
         self.toolbox = base.Toolbox()
         self.toolbox.register("individual", self.get_random_game)
         self.toolbox.register("population", tools.initRepeat, list, self.toolbox.individual)
 
-        self.toolbox.register("mate", tools.cxTwoPoint)
-        self.toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
-        self.toolbox.register("select", tools.selTournament, tournsize=3)
+        self.toolbox.register("mate", self.mate_games)
+        self.toolbox.register("mutate", self.mutate_game)
+        self.toolbox.register("select", self.select_parents)
         self.toolbox.register("evaluate", self.determine_fitness)
+
+    def mate_games(self, parent1, parent2):
+        choices = []
+        choices2 = []
+
+        for index in range(len(parent1)):
+            parent = random.choice([parent1, parent2])
+            choices.append(parent[index])
+
+        for index in range(len(parent1)):
+            parent = random.choice([parent1, parent2])
+            choices2.append(parent[index])
+
+        starts = random.choice([parent1, parent2]).player_starts
+        starts2 = random.choice([parent1, parent2]).player_starts
+
+        ind = Individual(choices)
+        ind.player_starts = starts
+        fitness = self.determine_fitness(ind)
+
+        if fitness > parent1.fitness:
+            parent1[:] = choices
+            parent1.player_starts = starts
+
+        ind = Individual(choices2)
+        ind.player_starts = starts2
+        fitness = self.determine_fitness(ind)
+
+        if fitness > parent2.fitness:
+            parent2[:] = choices2
+            parent2.player_starts = starts2
+
+    def mutate_game(self, game):
+        for i in range(self.MUTATION_POSITIONS):
+            position = random.randint(0, 8)
+            choice = game[position]
+            increment = ((random.random() * 2) - 1) * self.MUTATION_RANGE
+
+            new_choice = int(choice + increment)
+            if new_choice > 8:
+                new_choice -= 9
+
+            if new_choice < 0:
+                new_choice = 9 + new_choice
+
+            game[position] = new_choice
+
+    def select_parents(self, population, individuals):
+        return list(reversed(sorted(population, key=lambda item: item.fitness)))[:individuals]
 
     def determine_fitness(self, game_choices):
         board, iterations = get_game_board(game_choices)
         distance = 5 - iterations
-        won = isWinner(board, "O") and 17.0 or 0.0
+        won = isWinner(board, "O") and 95.0 or 0.0
 
-        fit = Fitness((distance * 3.0 + won) / 20.0)
+        fit = Fitness((distance + won) / 100.0)
         fit.board = board
         fit.iterations = iterations
 
         return fit
 
     def get_random_game(self):
-        ind = Individual([random.randint(0, 8) for i in range(5)])
+        choices = [random.randint(0, 8) for i in range(50)]
+        ind = Individual(choices)
         ind.player_starts = [random.randint(0, 1)] == 0
         return ind
 
@@ -210,6 +264,9 @@ class GameSolver:
             ind.fitness = fit
 
         for g in xrange(generations):
+            pop = list(reversed(sorted(pop)))
+            print "============= GENERATION %d (top: %.2f%%) ==============" % (g, (pop[0].fitness * 100))
+
             offspring = self.toolbox.select(pop, len(pop))
             offspring = map(self.toolbox.clone, offspring)
 
@@ -236,7 +293,7 @@ class GameSolver:
 
 def main():
     solver = GameSolver()
-    for game in solver.get_top_solutions(population_size=20, generations=2000):
+    for game in solver.get_top_solutions(population_size=100, generations=1000):
         print
         print
         print game
